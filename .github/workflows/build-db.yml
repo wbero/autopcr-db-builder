@@ -36,9 +36,11 @@ jobs:
         env:
           DB_VERSION: ${{ github.event.inputs.version }}
         run: |
+          set -x
           if [ -z "$DB_VERSION" ]; then
             echo "Auto-detecting latest version..."
-            DB_VERSION=$(python .github/scripts/detect_version.py)
+            DB_VERSION=$(python .github/scripts/detect_version.py 2>&1)
+            echo "Detected version: [$DB_VERSION]"
             if [ -z "$DB_VERSION" ]; then
               echo "ERROR: Could not auto-detect version. Please provide version manually."
               exit 1
