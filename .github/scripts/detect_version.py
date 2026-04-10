@@ -25,24 +25,15 @@ def try_version(version: str) -> bool:
 def detect_version() -> str:
     """
     Try to detect latest version.
-    Strategy 1: Try known versions from newest to oldest
-    Strategy 2: Try manifest URL patterns
+    Only outputs the version number to stdout (no other text).
     """
-    print("Trying fallback versions...")
-
     for version in FALLBACK_VERSIONS:
-        print(f"  Checking version {version}...")
         if try_version(version):
-            print(f"  Found working version: {version}")
             return version
-
-    print("No working version found")
     return ""
 
 
 if __name__ == "__main__":
     version = detect_version()
     if version:
-        print(f"\nDetected version: {version}")
-    else:
-        print("\nERROR: Could not detect version")
+        print(version)
