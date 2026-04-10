@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 Auto-detect latest database version from Bilibili servers.
-Tries multiple strategies to find a working version.
 """
 
+import sys
 import requests
 
 BILI_ROOT = "https://l1-prod-patch-gzlj.bilibiligame.net/client_ob_771"
@@ -13,7 +13,6 @@ FALLBACK_VERSIONS = ["202604021043", "202604011049", "202604001012"]
 
 
 def try_version(version: str) -> bool:
-    """Check if a specific version's manifest is accessible"""
     url = f"{BILI_ROOT}/Manifest/AssetBundles/Android/{version}/manifest/manifest_assetmanifest"
     try:
         resp = requests.get(url, timeout=TIMEOUT)
@@ -23,10 +22,6 @@ def try_version(version: str) -> bool:
 
 
 def detect_version() -> str:
-    """
-    Try to detect latest version.
-    Only outputs the version number to stdout (no other text).
-    """
     for version in FALLBACK_VERSIONS:
         if try_version(version):
             return version
@@ -36,4 +31,6 @@ def detect_version() -> str:
 if __name__ == "__main__":
     version = detect_version()
     if version:
-        print(version)
+        print(version, flush=True)
+        sys.exit(0)
+    sys.exit(1)
