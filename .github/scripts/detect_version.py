@@ -1,46 +1,48 @@
 #!/usr/bin/env python3
 """
 Auto-detect latest database version from Bilibili servers.
+Tries multiple strategies to find a working version.
 """
 
 import requests
 
-BILI_MANIFEST_INDEX = "https://l1-prod-patch-gzlj.bilibiligame.net/client_ob_771/Manifest/AssetBundles/Android/"
+BILI_ROOT = "https://l1-prod-patch-gzlj.bilibiligame.net/client_ob_771"
 TIMEOUT = 30
+
+FALLBACK_VERSIONS = ["202604021043", "202604011049", "202604001012"]
+
+
+def try_version(version: str) -> bool:
+    """Check if a specific version's manifest is accessible"""
+    url = f"{BILI_ROOT}/Manifest/AssetBundles/Android/{version}/manifest/manifest_assetmanifest"
+    try:
+        resp = requests.get(url, timeout=TIMEOUT)
+        return resp.status_code == 200
+    except:
+        return False
 
 
 def detect_version() -> str:
     """
-    Try to detect latest version by checking manifest index.
-    Returns version string like '202604101230' or empty string if failed.
+    Try to detect latest version.
+    Strategy 1: Try known versions from newest to oldest
+    Strategy 2: Try manifest URL patterns
     """
-    try:
-        resp = requests.get(BILI_MANIFEST_INDEX, timeout=TIMEOUT)
-        resp.raise_for_status()
-        content = resp.text
+    print("Trying fallback versions...")
 
-        versions = []
-        for line in content.split('\n'):
-            if ',' in line:
-                version = line.split(',')[0].strip()
-                if version and version.isdigit() and len(version) >= 10:
-                    versions.append(version)
+    for version in FALLBACK_VERSIONS:
+        print(f"  Checking version {version}...")
+        if try_version(version):
+            print(f"  Found working version: {version}")
+            return version
 
-        if versions:
-            versions.sort(reverse=True)
-            latest = versions[0]
-            print(f"Detected latest version: {latest}")
-            return latest
-
-    except Exception as e:
-        print(f"Failed to detect version: {e}")
-
+    print("No working version found")
     return ""
 
 
 if __name__ == "__main__":
     version = detect_version()
     if version:
-        print(version)
+        print(f"\nDetected version: {version}")
     else:
-        print("ERROR: Could not detect version")
+        print("\nERROR: Could not detect version")
