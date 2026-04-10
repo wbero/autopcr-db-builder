@@ -24,13 +24,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install UnityPy requests
+          pip install UnityPy requests pydantic
 
       - name: Extract database
         id: extract
         env:
           DB_VERSION: ${{ github.event.inputs.version || '' }}
-          BILI_ASSET_URL: ${{ vars.BILI_ASSET_URL || 'https://l1-prod-patch-gzlj.bilibiligame.net/client_ob_771/AssetBundles/Android/masterdata_master.unity3d' }}
         run: |
           if [ -z "$DB_VERSION" ]; then
             DB_VERSION=$(date +%Y%m%d%H%M)
