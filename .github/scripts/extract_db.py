@@ -82,8 +82,7 @@ class AssetContent:
 
 def fetch_manifest(version: str) -> Dict[str, AssetContent]:
     manifest_url = f"{BILI_MANIFEST}/AssetBundles/Android/{version}/manifest/manifest_assetmanifest"
-    print(f"DEBUG: version parameter = [{version}]")
-    print(f"DEBUG: manifest_url = [{manifest_url}]")
+    print(f"Fetching manifest from: {manifest_url}", flush=True)
 
     registry: Dict[str, AssetContent] = {}
 
