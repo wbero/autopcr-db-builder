@@ -32,91 +32,59 @@ except ImportError:
     print("requests not installed. Run: pip install requests")
     sys.exit(1)
 
-try:
-    import pydantic
-except ImportError:
-    print("pydantic not installed. Run: pip install pydantic")
-    sys.exit(1)
-
 
 BILI_ROOT = "https://l1-prod-patch-gzlj.bilibiligame.net/client_ob_771"
 BILI_MANIFEST = f"{BILI_ROOT}/Manifest"
 BILI_POOL = f"{BILI_ROOT}/pool"
 
 
-class AssetContent(pydantic.BaseModel):
-    url: str = None
-    md5: str = None
-    type: str = None
-    category: str = None
-    size: int = 0
-    children: list = None
-
-    @property
-    def is_assets(self) -> bool:
-        return not self.url.startswith('manifest/')
-
-    @staticmethod
-    def from_line(line: str, category: str) -> "AssetContent":
-        splits = line.split(',')
-        offset = len(splits) > 5
-        return AssetContent(
-            url=splits[0],
-            md5=splits[1],
-            type=splits[2 + offset],
-            size=int(splits[3 + offset]),
-            category=category,
-            children=[]
-        )
-
-    @staticmethod
-    async def from_url(urlroot: str, url: str, category: str) -> list:
-        text = await get_text(f'{urlroot}{url}')
-        lines = text.split('\n')
-        result = [AssetContent.from_line(line, category) for line in lines]
-        for child in result:
-            if not child.is_assets:
-                child.children = await AssetContent.from_url(urlroot, child.url, child.category)
-        return result
-
-    async def download(self, urlgetter) -> bytes:
-        content = urlgetter(self.md5)
-        return await get_bytes(content)
-
-    def resolve_url(self, md5: str) -> str:
-        return f'{BILI_POOL}/{self.category}/{md5[:2]}/{md5}'
+def parse_manifest(content: str) -> dict:
+    """解析 manifest 内容，返回 url -> (md5, size) 的映射"""
+    registry = {}
+    for line in content.strip().split('\n'):
+        if not line or line.startswith('#'):
+            continue
+        parts = line.split(',')
+        if len(parts) >= 4:
+            url = parts[0].strip()
+            md5 = parts[1].strip()
+            size = int(parts[3].strip()) if parts[3].strip().isdigit() else 0
+            registry[url] = (md5, size)
+    return registry
 
 
-async def get_text(url: str) -> str:
-    resp = requests.get(url, timeout=60)
+def fetch_manifest(version: str) -> dict:
+    """获取指定版本的 manifest"""
+    manifest_url = f"{BILI_MANIFEST}/AssetBundles/Android/{version}/manifest/manifest_assetmanifest"
+    print(f"Fetching manifest from: {manifest_url}")
+
+    resp = requests.get(manifest_url, timeout=60)
     resp.raise_for_status()
-    return resp.text
+
+    content = resp.text
+    print(f"Manifest content length: {len(content)} bytes")
+    print(f"First 500 chars: {content[:500]}")
+
+    return parse_manifest(content)
 
 
-async def get_bytes(url: str) -> bytes:
-    resp = requests.get(url, timeout=600)
+def download_asset(url: str, registry: dict) -> bytes:
+    """从 registry 下载资源"""
+    if url not in registry:
+        raise ValueError(f"URL not in registry: {url}")
+
+    md5, size = registry[url]
+    download_url = f"{BILI_POOL}/AssetBundles/Android/{md5[:2]}/{md5}"
+
+    print(f"Downloading {url} from {download_url} ({size} bytes)")
+    resp = requests.get(download_url, timeout=600)
     resp.raise_for_status()
     return resp.content
 
 
-async def fetch_manifest(version: str) -> AssetContent:
-    urlroot = f'{BILI_MANIFEST}/AssetBundles/Android/{version}/'
-    return AssetContent(
-        url='manifest/manifest_assetmanifest',
-        type='every',
-        category='AssetBundles/Android',
-        children=await AssetContent.from_url(urlroot, 'manifest/manifest_assetmanifest', 'AssetBundles/Android')
-    )
-
-
-async def download_asset(url: str, registries: dict) -> bytes:
-    content = registries[url]
-    download_url = content.resolve_url(content.md5)
-    return await get_bytes(download_url)
-
-
-async def extract_sqlite_from_assetbundle(raw: bytes) -> bytes:
+def extract_sqlite_from_assetbundle(raw: bytes) -> bytes:
     """使用 UnityPy 从 Unity AssetBundle 提取 SQLite 数据库。"""
+    print(f"AssetBundle size: {len(raw)} bytes")
     print("Loading AssetBundle with UnityPy...")
 
     if hasattr(UnityPy, "config"):
@@ -134,7 +102,9 @@ async def extract_sqlite_from_assetbundle(raw: bytes) -> bytes:
     if not env.objects:
         raise RuntimeError("AssetBundle has no objects; may be incomplete or incompatible")
 
-    for obj in env.objects:
+    print(f"AssetBundle contains {len(env.objects)} objects")
+
+    for i, obj in enumerate(env.objects):
         if obj.type.name == "TextAsset":
             asset = obj.read()
             data = getattr(asset, "script", None)
@@ -142,6 +112,7 @@ async def extract_sqlite_from_assetbundle(raw: bytes) -> bytes:
                 data = getattr(asset, "m_Script", None)
 
             if data is not None:
+                print(f"Found TextAsset at index {i}: {asset.name}")
                 if isinstance(data, memoryview):
                     return data.tobytes()
                 if isinstance(data, bytearray):
@@ -169,10 +140,10 @@ def generate_manifest(db_data: bytes, version: str) -> dict:
     return manifest
 
 
-async def extract_db(version: str = None, output_dir: str = ".") -> dict:
+def extract_db(version: str = None, output_dir: str = ".") -> dict:
     """
     主提取流程:
-    1. 从 B站 获取 manifest
+    1. 获取 manifest
     2. 下载 masterdata_master.unity3d
     3. 使用 UnityPy 提取 SQLite
     4. 保存 .db 文件
@@ -187,26 +158,14 @@ async def extract_db(version: str = None, output_dir: str = ".") -> dict:
 
     print(f"Extracting database version {version}...")
 
-    print(f"Fetching manifest for version {version}...")
-    manifest_root = await fetch_manifest(version)
-
-    registries = {}
-    def register_content(content: AssetContent):
-        registries[content.url] = content
-        if content.children:
-            for child in content.children:
-                register_content(child)
-
-    for child in manifest_root.children:
-        registries[child.url] = child
-
-    print(f"Registered {len(registries)} assets")
+    registry = fetch_manifest(version)
+    print(f"Manifest contains {len(registry)} entries")
 
     print("Downloading masterdata_master.unity3d...")
-    raw = await download_asset('a/masterdata_master.unity3d', registries)
+    raw = download_asset('a/masterdata_master.unity3d', registry)
     print(f"Downloaded {len(raw)} bytes")
 
-    db_data = await extract_sqlite_from_assetbundle(raw)
+    db_data = extract_sqlite_from_assetbundle(raw)
     print(f"Extracted SQLite: {len(db_data)} bytes")
 
     with open(db_path, 'wb') as f:
@@ -233,8 +192,7 @@ def main():
     parser.add_argument("--output-dir", "-o", default=".", help="Output directory (default: current directory)")
     args = parser.parse_args()
 
-    import asyncio
-    manifest = asyncio.run(extract_db(args.version, args.output_dir))
+    manifest = extract_db(args.version, args.output_dir)
 
     with open(Path(args.output_dir) / "manifest.json") as f:
         print(f"\nmanifest.json content:\n{f.read()}")
