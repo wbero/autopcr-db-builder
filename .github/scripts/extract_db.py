@@ -13,7 +13,7 @@ import hashlib
 import argparse
 import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 try:
     import UnityPy
@@ -34,7 +34,7 @@ BILI_POOL = f"{BILI_ROOT}/pool"
 
 
 class AssetContent:
-    def __init__(self, url: str, md5: str, type: str, category: str, size: int = 0, children: List["AssetContent"] = None):
+    def __init__(self, url: str, md5: str = "", type: str = "", category: str = "", size: int = 0, children: List["AssetContent"] = None):
         self.url = url
         self.md5 = md5
         self.type = type
@@ -89,6 +89,7 @@ def fetch_manifest(version: str) -> Dict[str, AssetContent]:
 
     root = AssetContent(
         url='manifest/manifest_assetmanifest',
+        md5='',
         type='every',
         category='AssetBundles/Android',
         children=AssetContent.from_url(f"{BILI_MANIFEST}/AssetBundles/Android/{version}/", 'manifest/manifest_assetmanifest', 'AssetBundles/Android')
