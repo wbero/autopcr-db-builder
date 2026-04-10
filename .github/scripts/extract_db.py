@@ -4,12 +4,6 @@ AutoPCR Database Extractor
 
 使用 UnityPy 从 B站 AssetBundle 提取 SQLite 数据库并生成 manifest。
 此脚本设计用于 GitHub Actions CI 环境运行。
-
-Usage:
-    python extract_db.py [--version VERSION] [--output-dir DIR]
-
-Environment variables:
-    DB_VERSION: 数据库版本号 (例如 "202604021043")
 """
 
 import os
@@ -19,6 +13,7 @@ import hashlib
 import argparse
 import datetime
 from pathlib import Path
+from typing import Dict, List, Optional
 
 try:
     import UnityPy
@@ -38,45 +33,82 @@ BILI_MANIFEST = f"{BILI_ROOT}/Manifest"
 BILI_POOL = f"{BILI_ROOT}/pool"
 
 
-def parse_manifest(content: str) -> dict:
-    """解析 manifest 内容，返回 url -> (md5, size) 的映射"""
-    registry = {}
-    for line in content.strip().split('\n'):
-        if not line or line.startswith('#'):
-            continue
-        parts = line.split(',')
-        if len(parts) >= 4:
-            url = parts[0].strip()
-            md5 = parts[1].strip()
-            size = int(parts[3].strip()) if parts[3].strip().isdigit() else 0
-            registry[url] = (md5, size)
-    return registry
+class AssetContent:
+    def __init__(self, url: str, md5: str, type: str, category: str, size: int = 0, children: List["AssetContent"] = None):
+        self.url = url
+        self.md5 = md5
+        self.type = type
+        self.category = category
+        self.size = size
+        self.children = children or []
+
+    @property
+    def is_assets(self) -> bool:
+        return not self.url.startswith('manifest/')
+
+    @staticmethod
+    def from_line(line: str, category: str) -> "AssetContent":
+        splits = line.split(',')
+        offset = len(splits) > 5
+        return AssetContent(
+            url=splits[0],
+            md5=splits[1],
+            type=splits[2 + offset],
+            size=int(splits[3 + offset]) if splits[3 + offset].isdigit() else 0,
+            category=category,
+            children=[]
+        )
+
+    @staticmethod
+    def from_url(urlroot: str, url: str, category: str) -> List["AssetContent"]:
+        full_url = f'{urlroot}{url}'
+        resp = requests.get(full_url, timeout=60)
+        resp.raise_for_status()
+        lines = resp.text.split('\n')
+        result = []
+        for line in lines:
+            if line.strip():
+                content = AssetContent.from_line(line, category)
+                if not content.is_assets and content.url:
+                    content.children = AssetContent.from_url(urlroot, content.url, content.category)
+                result.append(content)
+        return result
+
+    def register_to(self, registry: Dict[str, "AssetContent"]):
+        registry[self.url] = self
+        for child in self.children:
+            child.register_to(registry)
 
 
-def fetch_manifest(version: str) -> dict:
-    """获取指定版本的 manifest"""
+def fetch_manifest(version: str) -> Dict[str, AssetContent]:
+    """获取指定版本的 manifest 并注册所有资源"""
     manifest_url = f"{BILI_MANIFEST}/AssetBundles/Android/{version}/manifest/manifest_assetmanifest"
     print(f"Fetching manifest from: {manifest_url}")
 
-    resp = requests.get(manifest_url, timeout=60)
-    resp.raise_for_status()
+    registry: Dict[str, AssetContent] = {}
 
-    content = resp.text
-    print(f"Manifest content length: {len(content)} bytes")
-    print(f"First 500 chars: {content[:500]}")
+    root = AssetContent(
+        url='manifest/manifest_assetmanifest',
+        type='every',
+        category='AssetBundles/Android',
+        children=AssetContent.from_url(f"{BILI_MANIFEST}/AssetBundles/Android/{version}/", 'manifest/manifest_assetmanifest', 'AssetBundles/Android')
+    )
 
-    return parse_manifest(content)
+    root.register_to(registry)
+    print(f"Manifest contains {len(registry)} entries")
+
+    return registry
 
 
-def download_asset(url: str, registry: dict) -> bytes:
+def download_asset(url: str, registry: Dict[str, AssetContent]) -> bytes:
     """从 registry 下载资源"""
     if url not in registry:
         raise ValueError(f"URL not in registry: {url}")
 
-    md5, size = registry[url]
-    download_url = f"{BILI_POOL}/AssetBundles/Android/{md5[:2]}/{md5}"
+    content = registry[url]
+    download_url = f"{BILI_POOL}/{content.category}/{content.md5[:2]}/{content.md5}"
 
-    print(f"Downloading {url} from {download_url} ({size} bytes)")
+    print(f"Downloading {url} from {download_url} ({content.size} bytes)")
     resp = requests.get(download_url, timeout=600)
     resp.raise_for_status()
     return resp.content
@@ -143,7 +175,7 @@ def generate_manifest(db_data: bytes, version: str) -> dict:
 def extract_db(version: str = None, output_dir: str = ".") -> dict:
     """
     主提取流程:
-    1. 获取 manifest
+    1. 获取 manifest (递归)
     2. 下载 masterdata_master.unity3d
     3. 使用 UnityPy 提取 SQLite
     4. 保存 .db 文件
@@ -159,7 +191,6 @@ def extract_db(version: str = None, output_dir: str = ".") -> dict:
     print(f"Extracting database version {version}...")
 
     registry = fetch_manifest(version)
-    print(f"Manifest contains {len(registry)} entries")
 
     print("Downloading masterdata_master.unity3d...")
     raw = download_asset('a/masterdata_master.unity3d', registry)
