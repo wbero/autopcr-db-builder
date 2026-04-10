@@ -81,9 +81,9 @@ class AssetContent:
 
 
 def fetch_manifest(version: str) -> Dict[str, AssetContent]:
-    """获取指定版本的 manifest 并注册所有资源"""
     manifest_url = f"{BILI_MANIFEST}/AssetBundles/Android/{version}/manifest/manifest_assetmanifest"
-    print(f"Fetching manifest from: {manifest_url}")
+    print(f"DEBUG: version parameter = [{version}]")
+    print(f"DEBUG: manifest_url = [{manifest_url}]")
 
     registry: Dict[str, AssetContent] = {}
 
@@ -145,7 +145,7 @@ def extract_sqlite_from_assetbundle(raw: bytes) -> bytes:
                 data = getattr(asset, "m_Script", None)
 
             if data is not None:
-                print(f"Found TextAsset at index {i}: {asset.name}")
+                print(f"Found TextAsset at index {i}")
                 if isinstance(data, memoryview):
                     return data.tobytes()
                 if isinstance(data, bytearray):

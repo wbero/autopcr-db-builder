@@ -50,6 +50,13 @@ jobs:
           python .github/scripts/extract_db.py --version "$DB_VERSION" --output-dir ${{ env.DB_DIR }}
           echo "DB_VERSION=$DB_VERSION" >> $GITHUB_OUTPUT
 
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: ${{ env.DB_DIR }}/
+
       - name: Create Release
         id: create-release
         uses: softprops/action-gh-release@v2
