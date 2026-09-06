@@ -7,7 +7,7 @@
 - 从游戏维护状态接口读取真实 `required_manifest_ver`
 - 从 B 站资源服务器下载并校验 `masterdata_master.unity3d`
 - 使用 UnityPy 提取 SQLite 数据库
-- 使用 AutoPCR Android 的 `rainbow.json` 恢复表名和列名
+- 使用公开上游 `cc004/autopcr` 的 `data/rainbow.json` 恢复表名和列名
 - 执行 SQLite 完整性检查和关键表/列检查
 - 生成包含 SHA-256、表行数和恢复统计的 `manifest.json`
 - 已发布的版本自动跳过，支持手动强制重建
@@ -39,7 +39,7 @@
 │  │ 1. Checkout code                                    │  │
 │  │ 2. Setup Python 3.11                                │  │
 │  │ 3. 运行单元测试并检测游戏 manifest                  │  │
-│  │ 4. Checkout AutoPCR Android 的 rainbow.json          │  │
+│  │ 4. Checkout cc004/autopcr 的 rainbow.json            │  │
 │  │ 5. 下载、提取、解混淆并校验 SQLite                  │  │
 │  │ 6. 创建 Release 并记录最新版本                       │  │
 │  └─────────────────────────────────────────────────────┘  │
@@ -79,7 +79,7 @@ python .github/scripts/detect_version.py
 python .github/scripts/extract_db.py \
   --version 202609021434 \
   --output-dir db \
-  --rainbow ../AutoPCR-Android/app/src/main/python/data/rainbow.json
+  --rainbow ../autopcr/data/rainbow.json
 ```
 
 ## App 端使用
